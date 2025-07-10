@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fire Simulation</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: black;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: Arial, sans-serif;
+        }
+        canvas {
+            border: 1px solid #333;
+            max-width: 100%;
+            max-height: 100vh;
+        }
+        .controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            font-size: 14px;
+        }
+        .controls button {
+            background: #333;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            margin: 2px;
+            cursor: pointer;
+            border-radius: 3px;
+        }
+        .controls button:hover {
+            background: #555;
+        }
+    </style>
+</head>
+<body>
+    <div class="controls">
+        <button onclick="togglePause()">Pause/Resume</button>
+        <button onclick="resetSimulation()">Reset</button>
+        <div>Touch/Click to interact</div>
+    </div>
+    <canvas id="fireCanvas" width="800" height="600"></canvas>
+
+    <script>
+        const canvas = document.getElementById('fireCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Fire parameters - matching Python exactly
+        const PARTICLE_COUNT = 5000;
+        const FLAME_BASE_WIDTH = 400;
+        const FLAME_CENTER = canvas.width / 2;
+        const FIRE_VOLUME_HEIGHT = 100;
+        const TURBULENCE_STRENGTH = 40.0;
+        const NOISE_SCALE = 0.01;
+        
+        // Colors for temperature gradient - matching Python RGBA values
+        const COLORS = [
+            [139, 0, 0, 120/255],     // Dark red (coolest, ~500°C)
+            [178, 34, 34, 140/255],   // Firebrick red
+            [220, 20, 60, 150/255],   // Crimson
+            [255, 0, 0, 160/255],     // Pure red (~600°C)
+            [255, 69, 0, 170/255],    // Red-orange
+            [255, 99, 71, 180/255],   // Tomato
+            [255, 140, 0, 190/255],   // Dark orange
+            [255, 165, 0, 200/255],   // Orange (~800°C)
+            [255, 200, 0, 210/255],   // Golden orange
+            [255, 215, 0, 220/255],   // Gold
+            [255, 255, 0, 230/255],   // Yellow (~1000°C)
+            [255, 255, 100, 240/255], // Light yellow
+            [255, 255, 150, 250/255], // Pale yellow
+            [255, 255, 200, 255/255], // Near-white (~1200°C)
+            [255, 255, 255, 255/255]  // White hot (~1500°C+)
+        ];
+        
+        let particles = [];
+        let timeOffset = 0;
+        let isPaused = false;
+        let mouseX = FLAME_CENTER;
+        let mouseY = canvas.height;
+        let isMouseDown = false;
+        
+        // Noise function for turbulence
+        function simpleNoise(x, y, time) {
+            return Math.sin(x * NOISE_SCALE + time) * 
+                   Math.cos(y * NOISE_SCALE + time * 0.7) * 
+                   Math.sin((x + y) * NOISE_SCALE * 0.5 + time * 1.3);
+        }
+        
+        // Get turbulent force at position
+        function getTurbulentForce(x, y, time) {
+            const noise1 = simpleNoise(x, y, time);
+            const noise2 = simpleNoise(x * 2, y * 2, time * 1.5) * 0.5;
+            const noise3 = simpleNoise(x * 4, y * 4, time * 2.0) * 0.25;
+            
+            const combinedNoise = noise1 + noise2 + noise3;
+            
+            const forceX = combinedNoise * TURBULENCE_STRENGTH;
+            const forceY = simpleNoise(x + 100, y + 100, time) * TURBULENCE_STRENGTH * 0.3;
+            
+            return { x: forceX, y: forceY };
+        }
+        
+        // Particle class
+        class Particle {
+            constructor(x, y, temp, emissionZone = 0) {
+                this.x = x;
+                this.y = y;
+                this.temp = temp;
+                this.emissionZone = emissionZone;
+                
+                // Volumetric emission - matching Python exactly
+                if (emissionZone === 0) {  // Core burning zone - mostly upward
+                    this.vx = (Math.random() - 0.5) * 10.0;  // -5.0 to 5.0
+                    this.vy = -(Math.random() * 250.0 + 50.0);  // -50.0 to -300.0
+                } else if (emissionZone === 1) {  // Mid-zone - mixed directions
+                    const angle = Math.random() * (Math.PI/3) + (Math.PI/3);  // -60° to -120° (converted to positive)
+                    const speed = Math.random() * 170.0 + 30.0;  // 30.0 to 200.0
+                    this.vx = speed * Math.cos(angle) + (Math.random() - 0.5) * 20.0;  // -10.0 to 10.0 additional
+                    this.vy = -speed * Math.sin(angle);  // negative for upward
+                } else {  // Outer zone - more lateral movement
+                    const angle = Math.random() * (Math.PI/2) + (Math.PI/4);  // -45° to -135° (converted to positive)
+                    const speed = Math.random() * 130.0 + 20.0;  // 20.0 to 150.0
+                    this.vx = speed * Math.cos(angle) + (Math.random() - 0.5) * 30.0;  // -15.0 to 15.0 additional
+                    this.vy = -speed * Math.sin(angle);  // negative for upward
+                }
+                
+                this.life = Math.random() * 1.5 + 1.5;  // 1.5 to 3.0
+                this.age = 0;
+                this.turbulenceSensitivity = Math.random() * 1.0 + 0.5;  // 0.5 to 1.5
+                this.initialSize = Math.random() * 2.0 + 4.0;  // 4.0 to 6.0
+                this.maxSize = Math.random() * 4.0 + 8.0;  // 8.0 to 12.0
+                this.currentSize = this.initialSize;
+                this.depth = Math.random();  // 0.0 to 1.0
+            }
+            
+            update(dt) {
+                // Apply turbulent forces
+                const turbForce = getTurbulentForce(this.x, this.y, timeOffset);
+                this.vx += turbForce.x * dt * this.turbulenceSensitivity;
+                this.vy += turbForce.y * dt * this.turbulenceSensitivity;
+                
+                // Velocity damping
+                this.vx *= 0.98;
+                this.vy *= 0.99;
+                
+                // Buoyancy
+                const buoyancy = this.temp * 20.0;
+                this.vy -= buoyancy * dt;
+                
+                // Update position
+                this.x += this.vx * dt;
+                this.y += this.vy * dt;
+                
+                // Swirling motion
+                const swirl = Math.sin(this.age * 3.0 + this.x * 0.01) * 2.0;
+                this.vx += swirl * dt;
+                
+                this.age += dt;
+                this.temp -= dt * 0.3;
+                
+                // Update particle size based on age and temperature - matching Python exactly
+                const lifeProgress = this.age / this.life;
+                if (lifeProgress < 0.6) {  // Expansion phase
+                    const expansionFactor = lifeProgress / 0.8;  // 0 to 1
+                    this.currentSize = this.initialSize + (this.maxSize - this.initialSize) * expansionFactor;
+                } else {  // Cooling/shrinking phase
+                    const tempFactor = Math.max(0.3, this.temp);  // Don't shrink below 30% of max size
+                    this.currentSize = this.maxSize * tempFactor;
+                }
+                
+                return this.temp > 0 && this.age < this.life && this.y >= 0;
+            }
+            
+            draw() {
+                if (this.temp <= 0) return;
+                
+                const idx = Math.min(Math.floor(this.temp * (COLORS.length - 1)), COLORS.length - 1);
+                const color = COLORS[idx];
+                
+                // Match Pygame's depth alpha calculation exactly
+                const depthAlpha = 0.6 + (0.4 * (1.0 - this.depth));
+                const alpha = color[3] * depthAlpha;
+                
+                // Use RGBA with alpha channel like Pygame
+                ctx.fillStyle = `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${alpha})`;
+                
+                // Draw filled circle like Pygame
+                const radius = Math.max(1, Math.round(this.currentSize));
+                ctx.beginPath();
+                ctx.arc(Math.round(this.x), Math.round(this.y), radius, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+        
+        // Initialize particles
+        function setup() {
+            particles = [];
+            console.log('Creating particles...');
+            
+            for (let i = 0; i < PARTICLE_COUNT; i++) {
+                const weights = [0.5, 0.3, 0.2];
+                const rand = Math.random();
+                let zone = 0;
+                if (rand > weights[0]) zone = 1;
+                if (rand > weights[0] + weights[1]) zone = 2;
+                
+                let x, y, temp;
+                if (zone === 0) {  // Core zone - center of fire volume
+                    x = FLAME_CENTER + (Math.random() - 0.5) * FLAME_BASE_WIDTH / 2;
+                    y = canvas.height - Math.random() * FIRE_VOLUME_HEIGHT / 2;
+                    temp = Math.random() * 0.2 + 0.8;  // 0.8 to 1.0 - Hotter particles
+                } else if (zone === 1) {  // Mid zone
+                    x = FLAME_CENTER + (Math.random() - 0.5) * FLAME_BASE_WIDTH;
+                    y = canvas.height - Math.random() * FIRE_VOLUME_HEIGHT;
+                    temp = Math.random() * 0.3 + 0.6;  // 0.6 to 0.9 - Medium temperature
+                } else {  // Outer zone
+                    x = FLAME_CENTER + (Math.random() - 0.5) * FLAME_BASE_WIDTH;
+                    y = canvas.height - Math.random() * FIRE_VOLUME_HEIGHT;
+                    temp = Math.random() * 0.3 + 0.5;  // 0.5 to 0.8 - Cooler particles
+                }
+                
+                try {
+                    particles.push(new Particle(x, y, temp, zone));
+                } catch (e) {
+                    console.error('Error creating particle:', e);
+                }
+            }
+            
+            console.log('Particles created:', particles.length);
+        }
+        
+        // Animation loop
+        function animate() {
+            if (!isPaused) {
+                timeOffset += 1/60;
+                
+                // Update particles
+                const dt = 1/60;
+                for (let i = particles.length - 1; i >= 0; i--) {
+                    if (!particles[i].update(dt)) {
+                        // Replace particle
+                        const weights = [0.5, 0.3, 0.2];
+                        const rand = Math.random();
+                        let zone = 0;
+                        if (rand > weights[0]) zone = 1;
+                        if (rand > weights[0] + weights[1]) zone = 2;
+                        
+                        let x, y, temp;
+                        if (zone === 0) {  // Core zone
+                            x = FLAME_CENTER + (Math.random() - 0.5) * FLAME_BASE_WIDTH / 2;
+                            y = canvas.height - Math.random() * FIRE_VOLUME_HEIGHT / 2;
+                            temp = Math.random() * 0.2 + 0.8;  // 0.8 to 1.0
+                        } else if (zone === 1) {  // Mid zone
+                            x = FLAME_CENTER + (Math.random() - 0.5) * FLAME_BASE_WIDTH;
+                            y = canvas.height - Math.random() * FIRE_VOLUME_HEIGHT;
+                            temp = Math.random() * 0.3 + 0.6;  // 0.6 to 0.9
+                        } else {  // Outer zone
+                            x = FLAME_CENTER + (Math.random() - 0.5) * FLAME_BASE_WIDTH;
+                            y = canvas.height - Math.random() * FIRE_VOLUME_HEIGHT;
+                            temp = Math.random() * 0.3 + 0.5;  // 0.5 to 0.8
+                        }
+                        
+                        particles[i] = new Particle(x, y, temp, zone);
+                    }
+                }
+                
+                // Draw
+                ctx.fillStyle = 'black';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                // Use normal blending like Pygame (not additive)
+                ctx.globalCompositeOperation = 'source-over';
+                
+                // Draw particles with some debugging
+                let visibleParticles = 0;
+                particles.forEach(particle => {
+                    if (particle.temp > 0) {
+                        particle.draw();
+                        visibleParticles++;
+                    }
+                });
+                
+                // Debug info (remove this later)
+                if (Math.floor(timeOffset * 60) % 60 === 0) {
+                    console.log('Particles:', particles.length, 'Visible:', visibleParticles, 'Canvas:', canvas.width, 'x', canvas.height);
+                }
+            }
+            
+            requestAnimationFrame(animate);
+        }
+        
+        // Controls
+        function togglePause() {
+            isPaused = !isPaused;
+        }
+        
+        function resetSimulation() {
+            setup();
+        }
+        
+        // Mouse/Touch events
+        canvas.addEventListener('mousedown', (e) => {
+            isMouseDown = true;
+            const rect = canvas.getBoundingClientRect();
+            mouseX = e.clientX - rect.left;
+            mouseY = e.clientY - rect.top;
+        });
+        
+        canvas.addEventListener('mousemove', (e) => {
+            if (isMouseDown) {
+                const rect = canvas.getBoundingClientRect();
+                mouseX = e.clientX - rect.left;
+                mouseY = e.clientY - rect.top;
+                
+                // Add particles at mouse position
+                for (let i = 0; i < 10; i++) {
+                    const x = mouseX + (Math.random() - 0.5) * 20;
+                    const y = mouseY + (Math.random() - 0.5) * 20;
+                    particles.push(new Particle(x, y, 1.0, 0));
+                }
+            }
+        });
+        
+        canvas.addEventListener('mouseup', () => {
+            isMouseDown = false;
+        });
+        
+        // Touch events for mobile
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            isMouseDown = true;
+            const rect = canvas.getBoundingClientRect();
+            const touch = e.touches[0];
+            mouseX = touch.clientX - rect.left;
+            mouseY = touch.clientY - rect.top;
+        });
+        
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            if (isMouseDown) {
+                const rect = canvas.getBoundingClientRect();
+                const touch = e.touches[0];
+                mouseX = touch.clientX - rect.left;
+                mouseY = touch.clientY - rect.top;
+                
+                // Add particles at touch position
+                for (let i = 0; i < 10; i++) {
+                    const x = mouseX + (Math.random() - 0.5) * 20;
+                    const y = mouseY + (Math.random() - 0.5) * 20;
+                    particles.push(new Particle(x, y, 1.0, 0));
+                }
+            }
+        });
+        
+        canvas.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            isMouseDown = false;
+        });
+        
+        // Resize canvas for mobile
+        function resizeCanvas() {
+            const container = canvas.parentElement;
+            const containerWidth = container.clientWidth;
+            const containerHeight = container.clientHeight;
+            
+            if (containerWidth < 800) {
+                canvas.width = containerWidth;
+                canvas.height = containerWidth * 0.75;
+            } else {
+                // Ensure canvas has proper dimensions
+                canvas.width = 800;
+                canvas.height = 600;
+            }
+            
+            // Update flame center after resize
+            const FLAME_CENTER_UPDATED = canvas.width / 2;
+            console.log('Canvas resized to:', canvas.width, 'x', canvas.height);
+        }
+        
+        // Initialize Canvas settings to match Pygame
+        function initializeCanvas() {
+            // Disable anti-aliasing for pixelated look like Pygame
+            ctx.imageSmoothingEnabled = false;
+            if (ctx.webkitImageSmoothingEnabled !== undefined) {
+                ctx.webkitImageSmoothingEnabled = false;
+            }
+            if (ctx.mozImageSmoothingEnabled !== undefined) {
+                ctx.mozImageSmoothingEnabled = false;
+            }
+            if (ctx.msImageSmoothingEnabled !== undefined) {
+                ctx.msImageSmoothingEnabled = false;
+            }
+        }
+        
+        // Initialize
+        console.log('Starting initialization...');
+        
+        // Set canvas size first
+        canvas.width = 800;
+        canvas.height = 600;
+        
+        // Initialize canvas settings
+        initializeCanvas();
+        
+        console.log('Canvas initialized:', canvas.width, 'x', canvas.height);
+        
+        // Setup particles
+        setup();
+        console.log('Particles setup complete:', particles.length);
+        
+        // Add resize listener
+        window.addEventListener('resize', resizeCanvas);
+        
+        // Start animation
+        animate();
+    </script>
+</body>
+</html> 

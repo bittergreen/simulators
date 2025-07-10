@@ -1,0 +1,181 @@
+/* Fire Simulation Styles */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    background: linear-gradient(135deg, #0c0c0c 0%, #1a1a1a 100%);
+    color: #ffffff;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    overflow: hidden;
+    user-select: none;
+}
+
+.container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 20px;
+}
+
+canvas {
+    border: 2px solid #333;
+    border-radius: 8px;
+    box-shadow: 
+        0 8px 32px rgba(255, 69, 0, 0.1),
+        0 4px 16px rgba(0, 0, 0, 0.3);
+    background-color: #000;
+    transition: transform 0.3s ease;
+}
+
+canvas:hover {
+    transform: scale(1.01);
+}
+
+.controls {
+    margin-top: 20px;
+    text-align: center;
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(10px);
+    padding: 20px 30px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+h1 {
+    font-size: 2.5em;
+    margin-bottom: 10px;
+    background: linear-gradient(45deg, #ff4500, #ffa500, #ffff00);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    text-shadow: 0 0 30px rgba(255, 69, 0, 0.5);
+}
+
+p {
+    font-size: 1.1em;
+    margin-bottom: 15px;
+    color: #cccccc;
+}
+
+kbd {
+    background: #2d2d2d;
+    border: 1px solid #555;
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-family: 'Courier New', monospace;
+    font-size: 0.9em;
+    color: #fff;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.stats {
+    font-size: 0.9em;
+    color: #888;
+    margin-top: 10px;
+}
+
+.stats span {
+    display: inline-block;
+    padding: 4px 8px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 4px;
+    margin: 0 2px;
+}
+
+/* Fullscreen styles */
+body:-webkit-full-screen .container {
+    padding: 0;
+}
+
+body:-moz-full-screen .container {
+    padding: 0;
+}
+
+body:fullscreen .container {
+    padding: 0;
+}
+
+/* Responsive design */
+@media (max-width: 900px) {
+    canvas {
+        width: 90vw;
+        height: auto;
+        max-width: 800px;
+    }
+    
+    .controls {
+        width: 90vw;
+        max-width: 600px;
+    }
+    
+    h1 {
+        font-size: 2em;
+    }
+}
+
+@media (max-width: 600px) {
+    .container {
+        padding: 10px;
+    }
+    
+    h1 {
+        font-size: 1.8em;
+    }
+    
+    p {
+        font-size: 1em;
+    }
+    
+    .stats {
+        font-size: 0.8em;
+    }
+}
+
+/* Animation for loading */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.container {
+    animation: fadeIn 0.8s ease-out;
+}
+
+/* Subtle glow effect for the canvas */
+canvas {
+    position: relative;
+}
+
+canvas::before {
+    content: '';
+    position: absolute;
+    top: -2px;
+    left: -2px;
+    right: -2px;
+    bottom: -2px;
+    background: linear-gradient(45deg, 
+        rgba(255, 69, 0, 0.1), 
+        rgba(255, 165, 0, 0.1), 
+        rgba(255, 255, 0, 0.1)
+    );
+    border-radius: 10px;
+    z-index: -1;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+canvas:hover::before {
+    opacity: 1;
+} 
